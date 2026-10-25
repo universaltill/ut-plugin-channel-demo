@@ -82,6 +82,8 @@ func webhook(ev channel.Event) (any, error) {
 		Resource struct {
 			ID string `json:"id"`
 		} `json:"resource"`
+		// OrdersToRedact is read for customers/redact only (ut-docs#4929).
+		OrdersToRedact json.RawMessage `json:"orders_to_redact"`
 	}
 	if err := json.Unmarshal(in.Body, &b); err != nil || b.ID == "" || !accountRe.MatchString(b.Shop) {
 		return nil, errors.New("body is not a webhook of this channel")
@@ -89,6 +91,41 @@ func webhook(ev channel.Event) (any, error) {
 	out := channel.WebhookResult{Account: b.Shop, DedupeID: clip(b.ID, 128), Event: webhookEvent(b.Topic)}
 	if b.Resource.ID != "" && okID(b.Resource.ID) {
 		out.ResourceIDs = []string{b.Resource.ID}
+	}
+	if out.Event == channel.EventCustomerRedact && b.OrdersToRedact != nil {
+		ids, err := redactOrderIDs(b.OrdersToRedact)
+		if err != nil {
+			return nil, err
+		}
+		out.OrderIDs = ids
+	}
+	return out, nil
+}
+
+// maxRedactOrders is the host's cap on order_ids of one customer_redact; more
+// is an error here, never a silent truncation.
+const maxRedactOrders = 10000
+
+// redactOrderIDs reads the channel's orders_to_redact: an array of string
+// ids, each passing okID. Anything else refuses the body.
+func redactOrderIDs(raw json.RawMessage) ([]string, error) {
+	var ids []string
+	if err := json.Unmarshal(raw, &ids); err != nil {
+		return nil, errors.New("orders_to_redact is not a list of order ids")
+	}
+	if len(ids) > maxRedactOrders {
+		return nil, errors.New("customers/redact names more orders than the channel allows")
+	}
+	seen := make(map[string]bool, len(ids))
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if !okID(id) {
+			return nil, errors.New("orders_to_redact holds an invalid order id")
+		}
+		if !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
 	}
 	return out, nil
 }

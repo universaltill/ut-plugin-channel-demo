@@ -353,6 +353,18 @@ func (s *Shop) WebhookBody(id, topic, resource string) []byte {
 	return b
 }
 
+// RedactBody builds an invented customers/redact payload: the customer's id
+// as the resource, plus the ids of the orders to erase (the channel's
+// equivalent of Shopify's orders_to_redact; ut-docs#4929). No personal data.
+func (s *Shop) RedactBody(id, customerID string, orderIDs []string) []byte {
+	m := map[string]any{"id": id, "topic": "customers/redact", "shop": s.opt.Account, "resource": map[string]string{"id": customerID}}
+	if orderIDs != nil {
+		m["orders_to_redact"] = orderIDs
+	}
+	b, _ := json.Marshal(m)
+	return b
+}
+
 // CanonicalSortedQuery is the contract's canonical string for
 // auth.callback_verify (mode sorted-query-without-param): the parameters
 // except skip, sorted by key; each pair enc(key)=enc(value) where enc maps
