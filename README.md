@@ -19,7 +19,7 @@ It is also the **reference adapter** and home of the **conformance suite**
 |---|---|
 | `channel.connect.test.ask` | Reads the shop's name, scopes, locations and counts. Writes nothing. |
 | `channel.oauth.callback.ask` | Parses the install parameters the host already verified; checks the shop domain; returns account and scopes. The host does the code exchange, PKCE, refresh and the callback signature check; the plugin never sees a token or a secret. |
-| `channel.webhook.ask` | Parses a webhook the host already verified. No tenant context: only `log` works. |
+| `channel.webhook.ask` | Parses a webhook the host already verified. `customers/redact` also yields `order_ids` from `orders_to_redact` (string ids passing `okID`, at most 10,000, else refused). No tenant context: only `log` works. |
 | `channel.import.ask` | Pages through products with variants and stock, submits `listing` and `stock_observed` records, resumable through the `import.products` cursor; records are deterministic so a second run is byte-identical. |
 | `channel.fetch.ask` / `channel.tick` | Re-fetch named orders / pull orders updated since the `orders.since` cursor; submit contract `order` records with **no customer name, address, email or phone**. |
 | `channel.contact.ask` | Fetches an order's contact details live for display; never stored, submitted or logged. |
