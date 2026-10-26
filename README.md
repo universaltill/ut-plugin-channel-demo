@@ -7,8 +7,9 @@ stock, fulfilment and cancels back. Every product, order and customer is invente
 
 It is a signed **WASM plugin of type `channel`** that runs only in the ut-cloud
 channel host, never on a till (ADR-0169, contract
-`ut-docs/reference/contracts/sales-channel-v1.md`). It is offered to test shops
-(and wherever `UT_CHANNEL_DEMO=1`), never to a real merchant in production.
+`ut-docs/reference/contracts/sales-channel-v1.md`). It is offered only where
+`UT_CHANNEL_DEMO=1` (a local, CI or demo run). No shop is offered it in
+production, test shops included (ut-docs#5025).
 
 It is also the **reference adapter** and home of the **conformance suite**
 (contract section 6) that every channel adapter runs in CI.
