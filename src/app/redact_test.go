@@ -71,11 +71,29 @@ func TestCustomerRedactOrderLimit(t *testing.T) {
 		return ids
 	}
 	got, err := askRedact(e, "customers/redact", e.shop.RedactBody("evt-l", "c-1", mk(10000)))
-	if err != nil || len(got.OrderIDs) != 10000 {
-		t.Fatalf("10,000: %d %v", len(got.OrderIDs), err)
+	if err != nil || len(got.OrderIDs) != 10000 || got.OrderIDsTruncated {
+		t.Fatalf("10,000: %d truncated=%v %v", len(got.OrderIDs), got.OrderIDsTruncated, err)
 	}
-	if _, err := askRedact(e, "customers/redact", e.shop.RedactBody("evt-l2", "c-1", mk(10001))); err == nil {
-		t.Error("10,001 accepted (never truncate)")
+	// 10,001 entries with one duplicate are 10,000 distinct: not truncated.
+	dup := append([]string{"o-0"}, mk(10000)...)
+	if got, err := askRedact(e, "customers/redact", e.shop.RedactBody("evt-l1", "c-1", dup)); err != nil || len(got.OrderIDs) != 10000 || got.OrderIDsTruncated {
+		t.Errorf("10,001 with a duplicate: %d truncated=%v %v", len(got.OrderIDs), got.OrderIDsTruncated, err)
+	}
+	// 10,001 distinct: first 10,000 in payload order, flag set, resource kept.
+	got, err = askRedact(e, "customers/redact", e.shop.RedactBody("evt-l2", "c-1", mk(10001)))
+	if err != nil || len(got.OrderIDs) != 10000 || !got.OrderIDsTruncated {
+		t.Fatalf("10,001: %d truncated=%v %v", len(got.OrderIDs), got.OrderIDsTruncated, err)
+	}
+	if got.OrderIDs[0] != "o-0" || got.OrderIDs[9999] != "o-9999" {
+		t.Errorf("not the first 10,000 in order: %s .. %s", got.OrderIDs[0], got.OrderIDs[9999])
+	}
+	if len(got.ResourceIDs) != 1 || got.ResourceIDs[0] != "c-1" {
+		t.Errorf("resource id lost: %v", got.ResourceIDs)
+	}
+	// A malformed id anywhere, even past the cap, still refuses the body.
+	bad := append(mk(10005), "../x")
+	if _, err := askRedact(e, "customers/redact", e.shop.RedactBody("evt-l3", "c-1", bad)); err == nil {
+		t.Error("bad id past the cap accepted")
 	}
 }
 

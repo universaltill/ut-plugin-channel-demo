@@ -1,7 +1,7 @@
 {
   "id": "com.universaltill.channel-demo",
   "name": "Demo channel",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "A pretend web shop that lets you try Universal Till sales channels without any real shop account: connect it, import its products, receive its orders and send stock, fulfilment and cancels back. Every product, order and customer is invented. It runs only in the Universal Till cloud, is for demonstrations and automated testing, and is never offered to any shop in production, test shops included.",
   "author": "Universal Till",
   "website": "https://universaltill.com",
