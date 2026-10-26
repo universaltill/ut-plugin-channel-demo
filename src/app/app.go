@@ -93,41 +93,48 @@ func webhook(ev channel.Event) (any, error) {
 		out.ResourceIDs = []string{b.Resource.ID}
 	}
 	if out.Event == channel.EventCustomerRedact && b.OrdersToRedact != nil {
-		ids, err := redactOrderIDs(b.OrdersToRedact)
+		ids, truncated, err := redactOrderIDs(b.OrdersToRedact)
 		if err != nil {
 			return nil, err
 		}
 		out.OrderIDs = ids
+		out.OrderIDsTruncated = truncated
 	}
 	return out, nil
 }
 
-// maxRedactOrders is the host's cap on order_ids of one customer_redact; more
-// is an error here, never a silent truncation.
+// maxRedactOrders is the host's cap on order_ids of one customer_redact. A
+// payload naming more distinct orders is not refused: the first
+// maxRedactOrders distinct ids are kept and WebhookResult.OrderIDsTruncated is
+// set so the host records it (ut-docs#5002).
 const maxRedactOrders = 10000
 
 // redactOrderIDs reads the channel's orders_to_redact: an array of string
-// ids, each passing okID. Anything else refuses the body.
-func redactOrderIDs(raw json.RawMessage) ([]string, error) {
+// ids, each passing okID. Anything else refuses the body. Every id is
+// validated; at most maxRedactOrders distinct ids are returned, in payload
+// order, and truncated says more distinct ids existed.
+func redactOrderIDs(raw json.RawMessage) (out []string, truncated bool, err error) {
 	var ids []string
 	if err := json.Unmarshal(raw, &ids); err != nil {
-		return nil, errors.New("orders_to_redact is not a list of order ids")
-	}
-	if len(ids) > maxRedactOrders {
-		return nil, errors.New("customers/redact names more orders than the channel allows")
+		return nil, false, errors.New("orders_to_redact is not a list of order ids")
 	}
 	seen := make(map[string]bool, len(ids))
-	out := make([]string, 0, len(ids))
+	out = make([]string, 0, min(len(ids), maxRedactOrders))
 	for _, id := range ids {
 		if !okID(id) {
-			return nil, errors.New("orders_to_redact holds an invalid order id")
+			return nil, false, errors.New("orders_to_redact holds an invalid order id")
 		}
-		if !seen[id] {
-			seen[id] = true
-			out = append(out, id)
+		if seen[id] {
+			continue
 		}
+		if len(out) == maxRedactOrders {
+			truncated = true
+			continue
+		}
+		seen[id] = true
+		out = append(out, id)
 	}
-	return out, nil
+	return out, truncated, nil
 }
 
 // webhookEvent maps the channel's topic to the neutral event; the host never
