@@ -3,6 +3,7 @@
 package conformance_test
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -105,4 +106,41 @@ func TestSuiteCatchesAnAdapterThatLeaksWhatItIsGiven(t *testing.T) {
 		return nil, nil
 	}})
 	wantViolation(t, conformance.Check9HostileChannelAndLimits(t, tg), "credential reached adapter output")
+}
+
+// Check 10: the connect test's location ids are the ids stock.set accepts.
+
+func TestSuiteCatchesAListedLocationThatStockSetRefuses(t *testing.T) {
+	// The connect test lists an id the shop does not know (the location's name
+	// would do as well): every stock push for it would fail for good.
+	tg := broken(channel.Handlers{channel.AskConnectTest: func(channel.Event) (any, error) {
+		return channel.ConnectTestResult{AccountName: "x", LocationList: []channel.Location{{ID: "nope-loc", Name: "Main warehouse", Active: true}}}, nil
+	}})
+	wantViolation(t, conformance.Check10ConnectLocationsAreStockSetLocations(t, tg), "refused the location")
+}
+
+func TestSuiteCatchesAStockSetThatIgnoresPayloadLocation(t *testing.T) {
+	// Writes the variant's stock whatever location the operation names.
+	tg := broken(channel.Handlers{channel.AskOutbox: func(channel.Event) (any, error) {
+		ops, _ := channel.OutboxNext(10)
+		for _, op := range ops {
+			variant, _, _ := strings.Cut(op.ExternalID, "@")
+			var p struct {
+				Available int64 `json:"available"`
+			}
+			_ = json.Unmarshal(op.Payload, &p)
+			body, _ := json.Marshal(map[string]any{"available": p.Available})
+			_, _ = channel.HTTP(channel.HTTPRequest{Method: "PUT", URL: "https://{account}/api/inventory/" + variant, Body: body})
+			_ = channel.OutboxAck(op.ID, channel.Ack{ExternalID: op.ExternalID})
+		}
+		return nil, nil
+	}})
+	wantViolation(t, conformance.Check10ConnectLocationsAreStockSetLocations(t, tg), "ignores payload.location")
+}
+
+func TestSuiteCatchesAConnectTestWithNoLocationList(t *testing.T) {
+	tg := broken(channel.Handlers{channel.AskConnectTest: func(channel.Event) (any, error) {
+		return channel.ConnectTestResult{AccountName: "x", Locations: []string{"Main warehouse"}}, nil
+	}})
+	wantViolation(t, conformance.Check10ConnectLocationsAreStockSetLocations(t, tg), "sends no location_list")
 }

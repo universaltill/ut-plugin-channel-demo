@@ -31,7 +31,9 @@ func connectTest(channel.Event) (any, error) {
 		Name      string   `json:"name"`
 		Scopes    []string `json:"scopes"`
 		Locations []struct {
-			Name string `json:"name"`
+			ID     string `json:"id"`
+			Name   string `json:"name"`
+			Active *bool  `json:"active"`
 		} `json:"locations"`
 		ProductCount int64 `json:"product_count"`
 		OrderCount   int64 `json:"order_count"`
@@ -42,6 +44,10 @@ func connectTest(channel.Event) (any, error) {
 	out := channel.ConnectTestResult{AccountName: clip(shop.Name, 100), Scopes: shop.Scopes, Products: shop.ProductCount, Orders: shop.OrderCount}
 	for _, l := range shop.Locations {
 		out.Locations = append(out.Locations, clip(l.Name, 100))
+		if okID(l.ID) {
+			// An absent "active" means active (contract section 4.1).
+			out.LocationList = append(out.LocationList, channel.Location{ID: l.ID, Name: clip(l.Name, 120), Active: l.Active == nil || *l.Active})
+		}
 	}
 	return out, nil
 }

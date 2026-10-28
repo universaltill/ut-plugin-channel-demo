@@ -5,6 +5,7 @@ package app_test
 import (
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -397,5 +398,86 @@ func TestHostFunctionDenialIsAnErrorNotASilentSuccess(t *testing.T) {
 	e.em.Host.Deny[channel.FnHTTP] = true
 	if r := e.em.Ask(channel.AskConnectTest, struct{}{}); r.Err == nil || !errors.Is(r.Err, channel.ErrDenied) {
 		t.Fatalf("want ErrDenied, got %v", r.Err)
+	}
+}
+
+func TestConnectTestAnswersLocationListWithIdsNamesAndActiveDefault(t *testing.T) {
+	e := newEnv(t, fakeshop.Options{})
+	var got channel.ConnectTestResult
+	if err := json.Unmarshal(e.ask(channel.AskConnectTest, struct{}{}), &got); err != nil {
+		t.Fatal(err)
+	}
+	want := []channel.Location{{ID: fakeshop.Location, Name: "Main warehouse", Active: true}}
+	if !reflect.DeepEqual(got.LocationList, want) {
+		t.Fatalf("location_list %+v, want %+v", got.LocationList, want)
+	}
+	if len(got.Locations) != 1 || got.Locations[0] != "Main warehouse" {
+		t.Fatalf("locations %v", got.Locations)
+	}
+}
+
+func TestStockSetAcceptsTheLocationItListed(t *testing.T) {
+	e := newEnv(t, fakeshop.Options{})
+	v := "v-0001-1"
+	loc := fakeshop.Location
+	e.em.Host.Outbox = []channel.OutboxOp{op("op-1", channel.OpStockSet, v+"@"+loc, nil, `{"available":7,"location":"`+loc+`"}`)}
+	e.ask(channel.AskOutbox, struct{}{})
+	a := e.em.Host.Acks["op-1"]
+	if a.Error != nil || a.ExternalID != v+"@"+loc || e.shop.Stock(v) != 7 {
+		t.Fatalf("ack %+v stock %d", a, e.shop.Stock(v))
+	}
+	// The location in the payload alone, and the composite id alone, work too.
+	e.em.Host.Outbox = []channel.OutboxOp{
+		op("op-2", channel.OpStockSet, v, nil, `{"available":8,"location":"`+loc+`"}`),
+		op("op-3", channel.OpStockSet, v+"@"+loc, nil, `{"available":9}`),
+	}
+	e.ask(channel.AskOutbox, struct{}{})
+	if e.em.Host.Acks["op-2"].Error != nil || e.em.Host.Acks["op-3"].Error != nil || e.shop.Stock(v) != 9 {
+		t.Fatalf("acks %+v %+v stock %d", e.em.Host.Acks["op-2"], e.em.Host.Acks["op-3"], e.shop.Stock(v))
+	}
+}
+
+func TestStockSetWithDifferingLocationsIsInvalid(t *testing.T) {
+	e := newEnv(t, fakeshop.Options{})
+	v := "v-0001-1"
+	start := e.shop.Stock(v)
+	e.em.Host.Outbox = []channel.OutboxOp{
+		op("op-1", channel.OpStockSet, v+"@loc-1", nil, `{"available":7,"location":"loc-2"}`),
+		op("op-2", channel.OpStockSet, v+"@a/b", nil, `{"available":7}`),
+		op("op-3", channel.OpStockSet, v, nil, `{"available":7,"location":"a b"}`),
+	}
+	e.ask(channel.AskOutbox, struct{}{})
+	for _, id := range []string{"op-1", "op-2", "op-3"} {
+		if a := e.em.Host.Acks[id]; a.Error == nil || a.Error.Code != "invalid_payload" || a.Error.Retryable {
+			t.Errorf("%s: ack %+v", id, a)
+		}
+	}
+	if e.shop.Stock(v) != start {
+		t.Fatalf("stock changed to %d", e.shop.Stock(v))
+	}
+}
+
+func TestStockSetAtAnUnknownLocationIsNotFoundAndChangesNothing(t *testing.T) {
+	e := newEnv(t, fakeshop.Options{})
+	v := "v-0001-1"
+	start := e.shop.Stock(v)
+	e.em.Host.Outbox = []channel.OutboxOp{op("op-1", channel.OpStockSet, v+"@nope-loc", nil, `{"available":7}`)}
+	e.ask(channel.AskOutbox, struct{}{})
+	a := e.em.Host.Acks["op-1"]
+	if a.Error == nil || a.Error.Code != "not_found" || a.Error.Retryable || e.shop.Stock(v) != start {
+		t.Fatalf("ack %+v stock %d", a, e.shop.Stock(v))
+	}
+}
+
+func TestStaleStockSetAtALocationReportsTheVariantNotTheCompositeId(t *testing.T) {
+	e := newEnv(t, fakeshop.Options{})
+	v := "v-0001-1"
+	e.shop.SetStock(v, 5)
+	seven := int64(7)
+	e.em.Host.Outbox = []channel.OutboxOp{op("op-1", channel.OpStockSet, v+"@"+fakeshop.Location, &seven, `{"available":9}`)}
+	e.ask(channel.AskOutbox, struct{}{})
+	obs := e.submitted(channel.KindStockObserved)
+	if len(obs) != 1 || !strings.Contains(string(obs[0]), `"variant":"`+v+`"`) || !strings.Contains(string(obs[0]), `"available":5`) {
+		t.Fatalf("stock_observed %s", obs)
 	}
 }

@@ -18,13 +18,13 @@ It is also the **reference adapter** and home of the **conformance suite**
 
 | Ask | Behaviour |
 |---|---|
-| `channel.connect.test.ask` | Reads the shop's name, scopes, locations and counts. Writes nothing. |
+| `channel.connect.test.ask` | Reads the shop's name, scopes, locations (names, and `location_list` with the ids `stock.set` takes, `active` defaulting to true) and counts. Writes nothing. |
 | `channel.oauth.callback.ask` | Parses the install parameters the host already verified; checks the shop domain; returns account and scopes. The host does the code exchange, PKCE, refresh and the callback signature check; the plugin never sees a token or a secret. |
 | `channel.webhook.ask` | Parses a webhook the host already verified. `customers/redact` also yields `order_ids` from `orders_to_redact` (string ids passing `okID`, each validated; the first 10,000 distinct are kept and `order_ids_truncated` is set when more were named). No tenant context: only `log` works. |
 | `channel.import.ask` | Pages through products with variants and stock, submits `listing` and `stock_observed` records, resumable through the `import.products` cursor; records are deterministic so a second run is byte-identical. |
 | `channel.fetch.ask` / `channel.tick` | Re-fetch named orders / pull orders updated since the `orders.since` cursor; submit contract `order` records with **no customer name, address, email or phone**. |
 | `channel.contact.ask` | Fetches an order's contact details live for display; never stored, submitted or logged. |
-| `channel.outbox.ask` | `stock.set` (absolute, compare-and-set on `expect`, a stale `expect` reports the channel's value and pulls recent orders), `fulfilment.create`, `order.cancel` (both idempotent on the operation id; "already done" is success). Anything else, a delete included, is dead-lettered. |
+| `channel.outbox.ask` | `stock.set` (external id `<variant>` or `<variant>@<location>`, optional `payload.location`; both must agree and be a listed location, an unknown one is `not_found` and writes nothing; absolute, compare-and-set on `expect`, a stale `expect` reports the channel's value and pulls recent orders), `fulfilment.create`, `order.cancel` (both idempotent on the operation id; "already done" is success). Anything else, a delete included, is dead-lettered. |
 
 The plugin has **no account name, no credential and no network of its own**. Its
 only network path is `channel_http`; it writes `https://{account}/...` and the
