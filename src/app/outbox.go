@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
+	"strings"
 
 	"github.com/universaltill/universal-till/sdk/plugin/channel"
 )
@@ -79,18 +80,51 @@ func perform(op channel.OutboxOp) channel.Ack {
 	return fail("unsupported_op", false)
 }
 
+// stockLocation splits a stock.set external id, `<variant>` or
+// `<variant>@<location>` (contract section 8.3), and reconciles it with the
+// payload's optional location. Both parts pass okID; two locations that differ
+// are refused. The location is "" when the operation names none.
+func stockLocation(externalID, payloadLoc string) (variant, loc string, ok bool) {
+	variant, idLoc, hasLoc := strings.Cut(externalID, "@")
+	if !okID(variant) || (hasLoc && !okID(idLoc)) || (payloadLoc != "" && !okID(payloadLoc)) {
+		return "", "", false
+	}
+	if hasLoc && payloadLoc != "" && idLoc != payloadLoc {
+		return "", "", false
+	}
+	if hasLoc {
+		return variant, idLoc, true
+	}
+	return variant, payloadLoc, true
+}
+
 func stockSet(op channel.OutboxOp) channel.Ack {
 	var p struct {
-		Available *int64 `json:"available"`
+		Available *int64  `json:"available"`
+		Location  *string `json:"location"`
 	}
-	if !okID(op.ExternalID) || json.Unmarshal(op.Payload, &p) != nil || p.Available == nil || *p.Available < 0 {
+	if json.Unmarshal(op.Payload, &p) != nil || p.Available == nil || *p.Available < 0 {
+		return fail("invalid_payload", false)
+	}
+	payloadLoc := ""
+	if p.Location != nil {
+		if *p.Location == "" {
+			return fail("invalid_payload", false)
+		}
+		payloadLoc = *p.Location
+	}
+	variant, loc, ok := stockLocation(op.ExternalID, payloadLoc)
+	if !ok {
 		return fail("invalid_payload", false)
 	}
 	body := map[string]any{"available": *p.Available}
 	if op.Expect != nil {
 		body["expect"] = *op.Expect
 	}
-	st, raw, err := call("PUT", "/api/inventory/"+esc(op.ExternalID), map[string]string{"Idempotency-Key": op.ID}, body)
+	if loc != "" {
+		body["location"] = loc
+	}
+	st, raw, err := call("PUT", "/api/inventory/"+esc(variant), map[string]string{"Idempotency-Key": op.ID}, body)
 	if err != nil {
 		return failFor(err)
 	}
@@ -98,8 +132,9 @@ func stockSet(op channel.OutboxOp) channel.Ack {
 	case st == 200:
 		return channel.Ack{ExternalID: op.ExternalID, ExternalVersion: strconv.FormatInt(*p.Available, 10)}
 	case st == 409 && errCode(raw) == "stale":
-		return staleStock(op, raw)
+		return staleStock(op, variant, raw)
 	case st == 404:
+		// Also the shop's unknown_location: nothing was written.
 		return fail("not_found", false)
 	}
 	return failFor(&statusError{Status: st})
@@ -109,12 +144,12 @@ func stockSet(op channel.OutboxOp) channel.Ack {
 // the one the cloud last saw. Report what the channel holds, pull recent
 // orders (ADR-0169 section 8: orders explain the difference), and let the
 // cloud recompute and requeue. Nothing was written.
-func staleStock(op channel.OutboxOp, raw []byte) channel.Ack {
+func staleStock(op channel.OutboxOp, variant string, raw []byte) channel.Ack {
 	var cur struct {
 		Available *int64 `json:"available"`
 	}
 	if json.Unmarshal(raw, &cur) == nil && cur.Available != nil && *cur.Available >= 0 {
-		if _, err := submit(channel.KindStockObserved, []channel.StockObserved{observed(op.ExternalID, *cur.Available, "channel-read")}); err != nil {
+		if _, err := submit(channel.KindStockObserved, []channel.StockObserved{observed(variant, *cur.Available, "channel-read")}); err != nil {
 			logErr("outbox.stale_report_failed", err)
 		}
 	}

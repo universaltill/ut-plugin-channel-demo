@@ -22,5 +22,6 @@ func demoTarget() conformance.Target {
 		Handlers: app.Handlers(),
 		NewShop:  func() conformance.Shop { return fakeshop.New(fakeshop.Options{}) },
 		Account:  probe.Account(), CredentialHeader: fakeshop.Header, Credential: probe.Token(),
+		StockVariant: "v-0001-1", // tracked, seeded by the fake shop
 	}
 }

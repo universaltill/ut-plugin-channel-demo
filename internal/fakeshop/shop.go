@@ -461,7 +461,7 @@ func (s *Shop) shop(w http.ResponseWriter) {
 	defer s.mu.Unlock()
 	writeJSON(w, 200, map[string]any{
 		"name": "Demo Shop A", "scopes": []string{"products", "inventory", "orders"},
-		"locations":     []map[string]string{{"id": Location, "name": "Main warehouse"}},
+		"locations":     []map[string]any{{"id": Location, "name": "Main warehouse", "active": true}},
 		"product_count": len(s.products), "order_count": len(s.orders),
 	})
 }
@@ -607,11 +607,17 @@ func (s *Shop) getStock(w http.ResponseWriter, variant string) {
 
 func (s *Shop) putStock(w http.ResponseWriter, r *http.Request, variant string) {
 	var in struct {
-		Available *int64 `json:"available"`
-		Expect    *int64 `json:"expect"`
+		Available *int64  `json:"available"`
+		Expect    *int64  `json:"expect"`
+		Location  *string `json:"location"`
 	}
 	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<16)).Decode(&in) != nil || in.Available == nil || *in.Available < 0 {
 		writeJSON(w, 422, map[string]string{"error": "invalid"})
+		return
+	}
+	// The shop has one stock location; naming another changes nothing.
+	if in.Location != nil && *in.Location != Location {
+		writeJSON(w, 404, map[string]string{"error": "unknown_location"})
 		return
 	}
 	s.mu.Lock()

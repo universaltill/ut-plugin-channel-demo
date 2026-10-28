@@ -114,6 +114,30 @@ func TestInventoryIsAbsoluteWithCompareAndSet(t *testing.T) {
 	}
 }
 
+func TestInventoryLocationInTheBodyMustBeTheShopsOwn(t *testing.T) {
+	s := New(Options{})
+	v := "v-0001-1"
+	start := s.Stock(v)
+	put := func(body string) *httptest.ResponseRecorder {
+		return do(s, "PUT", "/api/inventory/"+v, body, authed(s))
+	}
+	w := put(`{"available":4,"location":"nope-loc"}`)
+	if w.Code != 404 || !strings.Contains(w.Body.String(), "unknown_location") || s.Stock(v) != start {
+		t.Fatalf("unknown location: %d %s stock %d", w.Code, w.Body, s.Stock(v))
+	}
+	if c := put(`{"available":4,"location":"` + Location + `"}`).Code; c != 200 || s.Stock(v) != 4 {
+		t.Fatalf("own location: %d %d", c, s.Stock(v))
+	}
+}
+
+func TestShopAnswerListsLocationsAsActive(t *testing.T) {
+	s := New(Options{})
+	w := do(s, "GET", "/api/shop", "", authed(s))
+	if !strings.Contains(w.Body.String(), `"active":true`) || !strings.Contains(w.Body.String(), `"id":"`+Location+`"`) {
+		t.Fatalf("shop answer %s", w.Body)
+	}
+}
+
 func itoa(n int64) string { b, _ := json.Marshal(n); return string(b) }
 
 func TestFulfilmentAndCancelAreIdempotentOnTheKey(t *testing.T) {
