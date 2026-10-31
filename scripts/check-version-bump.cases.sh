@@ -19,6 +19,12 @@
 #                    and body are already copied in.
 # The test then calls vb_run_shared_cases, runs its own per-repo cases (the
 # entries mirror against its package.sh/build.sh), and ends with vb_finish.
+# Sourcing sets FAILS, REAL_SCRIPT/REAL_BODY and an EXIT trap that removes
+# the fixture dir: it replaces any EXIT trap the test set before sourcing.
+#
+# The self-check proves this copy matches its own hash line, so a casual
+# edit fails the repo's CI. Only sync-version-bump-body.sh --check (and a
+# local cycle-start) compares a copy with the canonical file itself.
 #
 # It is byte-identical in every ut-plugin-* repo. The canonical copy lives in
 # ut-docs at scripts/templates/check-version-bump.cases.sh -- NEVER edit a
@@ -28,7 +34,7 @@
 # The self-check below fails the test on any hand edit.
 #
 # cases-sha256 is the sha256 of this file with the cases-sha256 line removed.
-# cases-sha256: c3a661f246a60f90013e4a8df5c313ce2d48debc51d0fbe0c889cefe294fb779
+# cases-sha256: ccbf119c014526fbb4d5c61b363d89d409765a701ec0d2ddf843a85d643026c8
 
 _vbc_hash_of() {
     if command -v sha256sum >/dev/null 2>&1; then
