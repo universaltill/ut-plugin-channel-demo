@@ -22,8 +22,9 @@ channel host (`hosts: ["cloud"]`); a till lists it and refuses to run it.
   and are never stored. The customer struct is decoded for id and country only.
 - **Records are deterministic** (`external_version` = the channel's
   `updated_at`) so the host's idempotency gives "zero changes" on a second run.
-- **The orders record is the contract's** (`orders.go` `orderRecord`), not the
-  SDK's thinner `channel.Order`.
+- **The orders record is the SDK's `channel.Order`**, which carries the
+  contract's full record (universal-till#2146, ut-docs#4994). Never add an
+  adapter-local copy; `TestSubmittedOrderBytesAreStable` pins the wire bytes.
 - **Per-ask budgets** stay well inside the host caps (2,000 HTTP calls, 20,000
   records): `maxProductPages`, `maxOrderPages`. A budget-limited ask resumes
   from its cursor.
