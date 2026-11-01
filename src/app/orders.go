@@ -46,59 +46,24 @@ type apiOrder struct {
 	} `json:"customer"`
 }
 
-// orderRecord is the contract's `order` record (sales-channel-v1.md section
-// 2). The SDK's channel.Order is thinner than the contract (no order_number,
-// tax_included, refund fields, ...), so the adapter owns this type.
-type orderRecord struct {
-	channel.Identity
-	OrderNumber         string               `json:"order_number"`
-	PlacedAt            string               `json:"placed_at"`
-	Currency            string               `json:"currency"`
-	Status              string               `json:"status"`
-	PaymentState        string               `json:"payment_state,omitempty"`
-	Lines               []orderLineRecord    `json:"lines"`
-	ShippingMinor       int64                `json:"shipping_minor"`
-	ShippingTaxBP       int64                `json:"shipping_tax_bp"`
-	ShippingTaxIncluded bool                 `json:"shipping_tax_included"`
-	OrderDiscountMinor  int64                `json:"order_discount_minor"`
-	TaxAddedMinor       int64                `json:"tax_added_minor"`
-	RefundTotalMinor    int64                `json:"refund_total_minor"`
-	TotalMinor          int64                `json:"total_minor"`
-	Customer            *channel.CustomerRef `json:"customer,omitempty"`
-}
-
-type orderLineRecord struct {
-	ExternalID        string `json:"external_id"`
-	VariantExternalID string `json:"variant_external_id,omitempty"`
-	SKU               string `json:"sku"`
-	Name              string `json:"name"`
-	Qty               int64  `json:"qty"`
-	UnitPriceMinor    int64  `json:"unit_price_minor"`
-	TaxBP             int64  `json:"tax_bp"`
-	TaxIncluded       bool   `json:"tax_included"`
-	DiscountLineMinor int64  `json:"discount_line_minor"`
-	RefundedQuantity  int64  `json:"refunded_quantity"`
-	RestockedQuantity int64  `json:"restocked_quantity"`
-}
-
 // mapOrder turns the channel's order into the contract's record. The status
 // is what the channel reports; the cloud owns the canonical one.
-func mapOrder(o apiOrder) (orderRecord, bool) {
+func mapOrder(o apiOrder) (channel.Order, bool) {
 	if !okID(o.ID) || !timeRe.MatchString(o.UpdatedAt) || !timeRe.MatchString(o.PlacedAt) || len(o.Currency) != 3 {
-		return orderRecord{}, false
+		return channel.Order{}, false
 	}
-	r := orderRecord{
+	r := channel.Order{
 		Identity:    channel.Identity{ExternalID: o.ID, ExternalVersion: o.UpdatedAt},
 		OrderNumber: clip(o.Number, 40), PlacedAt: o.PlacedAt, Currency: o.Currency, Status: orderStatus(o),
 		PaymentState: paymentState(o.Payment), ShippingMinor: o.ShippingMinor, ShippingTaxBP: o.ShippingTaxBP,
 		ShippingTaxIncluded: true, OrderDiscountMinor: o.DiscountMinor, TaxAddedMinor: o.TaxAddedMinor,
-		RefundTotalMinor: o.RefundTotalMinor, TotalMinor: o.TotalMinor, Lines: []orderLineRecord{},
+		RefundTotalMinor: o.RefundTotalMinor, TotalMinor: o.TotalMinor, Lines: []channel.OrderLine{},
 	}
 	for _, l := range o.Lines {
 		if !okID(l.ID) {
-			return orderRecord{}, false
+			return channel.Order{}, false
 		}
-		lr := orderLineRecord{
+		lr := channel.OrderLine{
 			ExternalID: l.ID, SKU: clip(l.SKU, 100), Name: clip(l.Title, 255), Qty: l.Quantity, UnitPriceMinor: l.UnitPriceMinor,
 			TaxBP: l.TaxBP, TaxIncluded: l.TaxIncluded, DiscountLineMinor: l.DiscountMinor,
 			RefundedQuantity: l.RefundedQuantity, RestockedQuantity: l.RestockedQty,
@@ -146,7 +111,7 @@ func fetch(ev channel.Event) (any, error) {
 	if len(in.ResourceIDs) > 100 {
 		return nil, errors.New("too many resources")
 	}
-	var recs []orderRecord
+	var recs []channel.Order
 	for _, id := range in.ResourceIDs {
 		if !okID(id) {
 			channel.Log(channel.LevelWarn, "fetch.skip_id", map[string]any{"reason": "not_an_id"})
@@ -204,7 +169,7 @@ func pullOrders() (int, error) {
 		if err := getJSON(q, &page); err != nil {
 			return total, err
 		}
-		recs := make([]orderRecord, 0, len(page.Orders))
+		recs := make([]channel.Order, 0, len(page.Orders))
 		for _, o := range page.Orders {
 			r, ok := mapOrder(o)
 			if !ok {
